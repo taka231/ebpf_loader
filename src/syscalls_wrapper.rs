@@ -45,10 +45,97 @@ struct BpfProgLoadAttr {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy)]
+enum BpfAttachType {
+    CgroupInetIngress,
+    CgroupInetEgress,
+    CgroupInetSockCreate,
+    CgroupSockOps,
+    SkSkbStreamParser,
+    SkSkbStreamVerdict,
+    CgroupDevice,
+    SkMsgVerdict,
+    CgroupInet4Bind,
+    CgroupInet6Bind,
+    CgroupInet4Connect,
+    CgroupInet6Connect,
+    CgroupInet4PostBind,
+    CgroupInet6PostBind,
+    CgroupUdp4Sendmsg,
+    CgroupUdp6Sendmsg,
+    LircMode2,
+    FlowDissector,
+    CgroupSysctl,
+    CgroupUdp4Recvmsg,
+    CgroupUdp6Recvmsg,
+    CgroupGetsockopt,
+    CgroupSetsockopt,
+    TraceRawTp,
+    TraceFentry,
+    TraceFexit,
+    ModifyReturn,
+    LsmMac,
+    TraceIter,
+    CgroupInet4Getpeername,
+    CgroupInet6Getpeername,
+    CgroupInet4Getsockname,
+    CgroupInet6Getsockname,
+    XdpDevmap,
+    CgroupInetSockRelease,
+    XdpCpumap,
+    SkLookup,
+    Xdp,
+    SkSkbVerdict,
+    SkReuseportSelect,
+    SkReuseportSelectOrMigrate,
+    PerfEvent,
+    TraceKprobeMulti,
+    LsmCgroup,
+    StructOps,
+    Netfilter,
+    TcxIngress,
+    TcxEgress,
+    TraceUprobeMulti,
+    CgroupUnixConnect,
+    CgroupUnixSendmsg,
+    CgroupUnixRecvmsg,
+    CgroupUnixGetpeername,
+    CgroupUnixGetsockname,
+    NetkitPrimary,
+    NetkitPeer,
+    TraceKprobeSession,
+    TraceUprobeSession,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+union Target {
+    target_fd: u32,
+    target_ifindex: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+union Relative {
+    relative_fd: u32,
+    relative_id: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct BpfLinkCreateAttr {
+    fd: u32,
+    target: Target,
+    attach_type: u32,
+    flags: u32,
+}
+
+#[repr(C)]
 union BpfAttr {
     map_create: BpfMapCreateAttr,
     map_elem: BpfMapElemAttr,
     prog_load: BpfProgLoadAttr,
+    link_create: BpfLinkCreateAttr,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -80,6 +167,7 @@ pub enum BpfProgType {
     /* See /usr/include/linux/bpf.h for the full list. */
 }
 
+#[repr(C)]
 enum BpfCmd {
     MapCreate,
     MapLookupElem,
@@ -87,6 +175,30 @@ enum BpfCmd {
     MapDeleteElem,
     MapGetNextKey,
     ProgLoad,
+    ObjPin,
+    ObjGet,
+    ProgAttach,
+    ProgDetach,
+    ProgTestRun,
+    ProgGetNextId,
+    MapGetNextId,
+    ProgGetFdById,
+    MapGetFdById,
+    ObjGetInfoByFd,
+    ProgQuery,
+    RawTracepointOpen,
+    BtfLoad,
+    BtfGetFdById,
+    TaskFdQuery,
+    MapLookupAndDeleteElem,
+    MapFreeze,
+    BtfGetNextId,
+    MapLookupBatch,
+    MapLookupAndDeleteBatch,
+    MapUpdateBatch,
+    MapDeleteBatch,
+    LinkCreate,
+    LinkUpdate,
 }
 
 fn handle_error(ret: i64) -> Result<i64, std::io::Error> {
@@ -136,39 +248,42 @@ pub unsafe fn detach(fd: i32) -> Result<i32, std::io::Error> {
     Ok(handle_error(ret as i64)? as i32)
 }
 
-pub unsafe fn xdp_attach(socket_fd: i32, prog_fd: i32) -> Result<i32, std::io::Error> {
-    // let ret = unsafe {
-    //     libc::setsockopt(
-    //         socket_fd,
-    //         libc::SOL_SOCKET,
-    //         libc::SO_ATTACH_BPF,
-    //         &prog_fd as *const i32 as *const libc::c_void,
-    //         std::mem::size_of_val(&prog_fd) as u32,
-    //     )
-    // };
-    // Ok(handle_error(ret as i64)? as i32)
+pub unsafe fn xdp_attach(ifindex: i32, prog_fd: i32) -> Result<i32, std::io::Error> {
+    let mut attr = BpfAttr {
+        link_create: BpfLinkCreateAttr {
+            fd: prog_fd as u32,
+            target: Target {
+                target_ifindex: ifindex as u32,
+            },
+            attach_type: BpfAttachType::Xdp as u32,
+            flags: 0,
+        },
+    };
+    let ret = unsafe {
+        bpf(
+            BpfCmd::LinkCreate as i32,
+            &attr,
+            std::mem::size_of::<BpfLinkCreateAttr>(),
+        )?
+    };
+    Ok(ret as i32)
 }
 
 pub unsafe fn open_raw_sock(ifindex: i32) -> Result<i32, std::io::Error> {
     let socket_fd = unsafe {
         libc::socket(
             libc::AF_PACKET,
-            libc::SOCK_RAW,
-            (libc::ETH_P_ALL as u16).to_be() as i32,
+            libc::SOCK_RAW | libc::SOCK_NONBLOCK | libc::SOCK_CLOEXEC,
+            libc::htons(libc::ETH_P_ALL as u16) as i32,
         )
     };
     if socket_fd < 0 {
         return Err(std::io::Error::last_os_error());
     }
-    let sll = libc::sockaddr_ll {
-        sll_family: libc::AF_PACKET as u16,
-        sll_protocol: (libc::ETH_P_ALL as u16).to_be(),
-        sll_ifindex: ifindex,
-        sll_hatype: 0,
-        sll_pkttype: 0,
-        sll_halen: 0,
-        sll_addr: [0; 8],
-    };
+    let mut sll: libc::sockaddr_ll = unsafe { std::mem::zeroed() };
+    sll.sll_family = libc::AF_PACKET as u16;
+    sll.sll_protocol = ifindex as u16;
+    sll.sll_protocol = libc::htons(libc::ETH_P_ALL as u16);
 
     if unsafe {
         libc::bind(
@@ -183,11 +298,6 @@ pub unsafe fn open_raw_sock(ifindex: i32) -> Result<i32, std::io::Error> {
 }
 
 const PERF_EVENT_IOC_SET_BPF: u32 = libc::_IOW::<u32>('$' as u32, 8);
-
-unsafe fn attach(event_fd: i32, prog_fd: i32) -> Result<i32, std::io::Error> {
-    let ret = unsafe { libc::ioctl(event_fd, PERF_EVENT_IOC_SET_BPF as u64, prog_fd) };
-    Ok(handle_error(ret as i64)? as i32)
-}
 
 unsafe fn perf_event_open(attr: &PerfEventAttr) -> Result<i32, std::io::Error> {
     let ret = unsafe { libc::syscall(libc::SYS_perf_event_open, attr, -1, 0, -1, 0) };

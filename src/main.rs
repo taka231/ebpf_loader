@@ -26,11 +26,8 @@ fn main() -> anyhow::Result<()> {
                 .collect::<Vec<_>>()
         )
     );
-    let socket_fd = unsafe { syscalls_wrapper::open_raw_sock(1)? };
-    println!("socket_fd: {socket_fd}");
-    let ret = unsafe { syscalls_wrapper::xdp_attach(socket_fd, prog_fd as i32)? };
-    // std::thread::sleep(std::time::Duration::from_secs(10));
-    // unsafe { syscalls_wrapper::detach(ret)? };
-    //
+    let ret = unsafe { syscalls_wrapper::xdp_attach(2, prog_fd as i32)? };
+    std::thread::sleep(std::time::Duration::from_secs(10));
+    unsafe { syscalls_wrapper::detach(ret)? };
     Ok(())
 }
