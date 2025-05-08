@@ -73,7 +73,15 @@ pub fn relocate(data: &mut Vec<u8>, rel_section: &[Elf64Rel], rel_map: &HashMap<
             BpfRelocationType::RBpfNone => {}
             BpfRelocationType::RBpf64_64 => {
                 if let Some(&addr) = rel_map.get(sym_idx) {
-                    let offset = *r_offset as usize + 4;
+                    let r_offset = *r_offset as usize;
+                    let offset = r_offset + 4;
+                    // rewrite src to 0x1
+                    if r_offset + 1 < data.len() {
+                        let value = data[r_offset + 1];
+                        let new_value = value | 0x10;
+                        data[r_offset + 1] = new_value;
+                    }
+                    // rewrite imm to map_fd
                     if offset + 4 <= data.len() {
                         let value =
                             u32::from_le_bytes(data[offset..offset + 4].try_into().unwrap());

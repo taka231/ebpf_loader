@@ -19,7 +19,7 @@ fn main() -> anyhow::Result<()> {
     let xdp_rel_section = elf.parse_relocation_section(".relxdp");
     println!("xdp_rel_section: {:?}", xdp_rel_section);
     let map = unsafe { syscalls_wrapper::bpf_map_create(BpfMapType::Array, 4, 4, 1)? };
-    unsafe { syscalls_wrapper::bpf_map_update_elem(map, &0, &0, BpfMapUpdateFlag::Any)? };
+    unsafe { syscalls_wrapper::bpf_map_update_elem(map, &0, &1, BpfMapUpdateFlag::Any)? };
     unsafe {
         let mut value = 0;
         syscalls_wrapper::bpf_map_lookup_elem(map, &0, &mut value)?;
@@ -37,7 +37,17 @@ fn main() -> anyhow::Result<()> {
         match result {
             Ok(fd) => fd,
             Err(e) => {
-                println!("log_bug:\n{}", String::from_utf8_lossy(&log_buf));
+                println!(
+                    "log_bug:\n{}",
+                    String::from_utf8_lossy(
+                        &log_buf
+                            .into_iter()
+                            .take_while(|&c| c != 0)
+                            .collect::<Vec<_>>()
+                    )
+                );
+
+                unsafe { syscalls_wrapper::close(map)? };
                 return Err(e.into());
             }
         }
