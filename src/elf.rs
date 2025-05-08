@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use crate::elf_parser;
+
 #[repr(C)]
 #[derive(Debug, Clone)]
 pub struct Elf64Ehdr {
@@ -38,7 +40,51 @@ pub struct Elf64Shdr {
 pub struct Elf {
     pub data: Vec<u8>,
     pub ehdr: Elf64Ehdr,
+    pub section_name_table: Option<Vec<u8>>,
     pub shdrs: HashMap<String, Elf64Shdr>,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone)]
+pub enum BpfRelocationType {
+    RBpfNone = 0,
+    RBpf64_64 = 1,
+    RBpf64Abs64 = 2,
+    RBpf64Abs32 = 3,
+    RBpf64Nodyld32 = 4,
+    RBpf64_32 = 10,
+}
+
+#[derive(Debug, Clone)]
+pub struct Elf64Rel {
+    pub r_offset: u64,
+    pub rel_type: BpfRelocationType,
+    pub sym_idx: u32,
+}
+
+pub fn relocate(data: &mut Vec<u8>, rel_section: &[Elf64Rel], rel_map: &HashMap<u32, i64>) {
+    for Elf64Rel {
+        r_offset,
+        rel_type,
+        sym_idx,
+    } in rel_section
+    {
+        match rel_type {
+            BpfRelocationType::RBpfNone => {}
+            BpfRelocationType::RBpf64_64 => {
+                if let Some(&addr) = rel_map.get(sym_idx) {
+                    let offset = *r_offset as usize + 4;
+                    if offset + 4 <= data.len() {
+                        let value =
+                            u32::from_le_bytes(data[offset..offset + 4].try_into().unwrap());
+                        let new_value = value.wrapping_add(addr as u32);
+                        data[offset..offset + 4].copy_from_slice(&new_value.to_le_bytes());
+                    }
+                }
+            }
+            _ => unimplemented!(),
+        }
+    }
 }
 
 impl Elf {
@@ -48,6 +94,37 @@ impl Elf {
             let end = start + shdr.sh_size as usize;
             if end <= self.data.len() {
                 return Some(&self.data[start..end]);
+            }
+        }
+        None
+    }
+
+    pub fn parse_relocation_section(&self, section_name: &str) -> Option<Vec<Elf64Rel>> {
+        if let Some(shdr) = self.shdrs.get(section_name) {
+            let start = shdr.sh_offset as usize;
+            let end = start + shdr.sh_size as usize;
+            if end <= self.data.len() {
+                let mut relocations = Vec::new();
+                for offset in (start..end).step_by(std::mem::size_of::<Elf64Rel>()) {
+                    let r_offset = *elf_parser::read_struct::<u64>(&self.data, offset)?;
+                    let rel_type = elf_parser::read_struct::<u32>(&self.data, offset + 8)?;
+                    let sym_idx = *elf_parser::read_struct::<u32>(&self.data, offset + 12)?;
+                    let rel = Elf64Rel {
+                        r_offset,
+                        rel_type: match rel_type {
+                            0 => BpfRelocationType::RBpfNone,
+                            1 => BpfRelocationType::RBpf64_64,
+                            2 => BpfRelocationType::RBpf64Abs64,
+                            3 => BpfRelocationType::RBpf64Abs32,
+                            4 => BpfRelocationType::RBpf64Nodyld32,
+                            10 => BpfRelocationType::RBpf64_32,
+                            _ => continue, // Skip unknown types
+                        },
+                        sym_idx,
+                    };
+                    relocations.push(rel);
+                }
+                return Some(relocations);
             }
         }
         None

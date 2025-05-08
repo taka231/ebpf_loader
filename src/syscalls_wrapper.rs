@@ -9,11 +9,28 @@ struct BpfMapCreateAttr {
 
 #[repr(C)]
 #[derive(Clone, Copy)]
+pub enum BpfMapType {
+    Unspec, /* Reserve 0 as invalid map type */
+    Hash,
+    Array,
+    ProgArray,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
 struct BpfMapElemAttr {
     map_fd: u32,
     key: u64,
     value_or_next_key: ValueOrNextKey,
     flags: u64,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub enum BpfMapUpdateFlag {
+    Any,     /* create new element or update existing */
+    Noexist, /* create new element if it didn't exist */
+    Exist,   /* update existing element */
 }
 
 #[repr(C)]
@@ -243,7 +260,76 @@ pub unsafe fn bpf_prog_load(
     }
 }
 
-pub unsafe fn detach(fd: i32) -> Result<i32, std::io::Error> {
+pub unsafe fn bpf_map_create(
+    map_type: BpfMapType,
+    key_size: u32,
+    value_size: u32,
+    map_entries: u32,
+) -> Result<i32, std::io::Error> {
+    let attr = BpfMapCreateAttr {
+        map_type: map_type as u32,
+        key_size,
+        value_size,
+        max_entries: map_entries,
+    };
+    let ret = unsafe {
+        bpf(
+            BpfCmd::MapCreate as i32,
+            &BpfAttr { map_create: attr },
+            std::mem::size_of::<BpfMapCreateAttr>(),
+        )?
+    };
+    Ok(ret as i32)
+}
+
+pub unsafe fn bpf_map_lookup_elem<T, U>(
+    map_fd: i32,
+    key: &T,
+    value: &mut U,
+) -> Result<i32, std::io::Error> {
+    let attr = BpfMapElemAttr {
+        map_fd: map_fd as u32,
+        key: key as *const T as *const libc::c_void as u64,
+        value_or_next_key: ValueOrNextKey {
+            value: value as *mut U as *mut libc::c_void as u64,
+        },
+        flags: 0,
+    };
+    let ret = unsafe {
+        bpf(
+            BpfCmd::MapLookupElem as i32,
+            &BpfAttr { map_elem: attr },
+            std::mem::size_of::<BpfMapElemAttr>(),
+        )?
+    };
+    Ok(ret as i32)
+}
+
+pub unsafe fn bpf_map_update_elem<T, U>(
+    map_fd: i32,
+    key: &T,
+    value: &U,
+    flags: BpfMapUpdateFlag,
+) -> Result<i32, std::io::Error> {
+    let attr = BpfMapElemAttr {
+        map_fd: map_fd as u32,
+        key: key as *const T as *const libc::c_void as u64,
+        value_or_next_key: ValueOrNextKey {
+            value: value as *const U as *const libc::c_void as u64,
+        },
+        flags: flags as u64,
+    };
+    let ret = unsafe {
+        bpf(
+            BpfCmd::MapUpdateElem as i32,
+            &BpfAttr { map_elem: attr },
+            std::mem::size_of::<BpfMapElemAttr>(),
+        )?
+    };
+    Ok(ret as i32)
+}
+
+pub unsafe fn close(fd: i32) -> Result<i32, std::io::Error> {
     let ret = unsafe { libc::close(fd) };
     Ok(handle_error(ret as i64)? as i32)
 }

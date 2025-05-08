@@ -6,7 +6,7 @@ use std::path::Path;
 
 use crate::elf::{Elf, Elf64Ehdr, Elf64Shdr};
 
-fn read_struct<T>(data: &[u8], offset: usize) -> Option<&T> {
+pub fn read_struct<T>(data: &[u8], offset: usize) -> Option<&T> {
     if offset + size_of::<T>() > data.len() {
         return None;
     }
@@ -79,9 +79,11 @@ pub fn parse_elf<P: AsRef<Path>>(path: P) -> Result<Elf> {
             (name.to_string(), sh.clone())
         })
         .collect();
+    let section_name_table = Some(name_table.to_vec());
     Ok(Elf {
         data,
         ehdr: ehdr.clone(),
         shdrs: section_map,
+        section_name_table,
     })
 }
