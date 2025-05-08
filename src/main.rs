@@ -30,7 +30,7 @@ fn main() -> anyhow::Result<()> {
         &xdp_rel_section.unwrap(),
         &vec![(3, map as i64)].into_iter().collect(),
     );
-    let mut log_buf = vec![0; 256];
+    let mut log_buf = vec![0; 4096];
     let prog_fd = unsafe {
         let result =
             syscalls_wrapper::bpf_prog_load(BpfProgType::Xdp, &xdp_section, "GPL", &mut log_buf, 1);
@@ -52,9 +52,24 @@ fn main() -> anyhow::Result<()> {
             }
         }
     };
+    println!(
+        "log_bug:\n{}",
+        String::from_utf8_lossy(
+            &log_buf
+                .into_iter()
+                .take_while(|&c| c != 0)
+                .collect::<Vec<_>>()
+        )
+    );
     println!("fd: {prog_fd}");
     let ret = unsafe { syscalls_wrapper::xdp_attach(1, prog_fd as i32)? };
-    std::thread::sleep(std::time::Duration::from_secs(10));
+    std::thread::sleep(std::time::Duration::from_secs(3));
+    unsafe { syscalls_wrapper::bpf_map_update_elem(map, &0, &0, BpfMapUpdateFlag::Any)? };
+    println!("update map");
+    std::thread::sleep(std::time::Duration::from_secs(3));
+    unsafe { syscalls_wrapper::bpf_map_update_elem(map, &0, &1, BpfMapUpdateFlag::Any)? };
+    println!("update map");
+    std::thread::sleep(std::time::Duration::from_secs(3));
     unsafe { syscalls_wrapper::close(ret)? };
     unsafe { syscalls_wrapper::close(map)? };
     Ok(())
