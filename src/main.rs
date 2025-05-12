@@ -6,7 +6,7 @@ use rust_ebpf_loader::syscalls_wrapper::BpfMapUpdateFlag;
 use rust_ebpf_loader::syscalls_wrapper::BpfProgType;
 
 fn main() -> anyhow::Result<()> {
-    let path = "/home/taka2/ebpf/sample_xdp_drop/xdp_map_drop.o";
+    let path = "/home/taka2/ebpf/sample_xdp_drop/xdp_ipv6_drop_co_re.o";
     let elf = elf_parser::parse_elf(path)?;
     println!("ELF Header: {:#?}", elf.ehdr);
     for (name, shdr) in &elf.shdrs {
@@ -20,16 +20,11 @@ fn main() -> anyhow::Result<()> {
     println!("xdp_rel_section: {:?}", xdp_rel_section);
     let map = unsafe { syscalls_wrapper::bpf_map_create(BpfMapType::Array, 4, 4, 1)? };
     unsafe { syscalls_wrapper::bpf_map_update_elem(map, &0, &1, BpfMapUpdateFlag::Any)? };
-    unsafe {
-        let mut value = 0;
-        syscalls_wrapper::bpf_map_lookup_elem(map, &0, &mut value)?;
-        println!("value: {value}");
-    }
-    elf::relocate(
-        &mut xdp_section,
-        &xdp_rel_section.unwrap(),
-        &vec![(3, map as i64)].into_iter().collect(),
-    );
+    // elf::relocate(
+    //     &mut xdp_section,
+    //     &xdp_rel_section.unwrap(),
+    //     &vec![(3, map as i64)].into_iter().collect(),
+    // );
     let mut log_buf = vec![0; 4096];
     let prog_fd = unsafe {
         let result =
@@ -63,13 +58,13 @@ fn main() -> anyhow::Result<()> {
     );
     println!("fd: {prog_fd}");
     let ret = unsafe { syscalls_wrapper::xdp_attach(1, prog_fd as i32)? };
-    std::thread::sleep(std::time::Duration::from_secs(3));
-    unsafe { syscalls_wrapper::bpf_map_update_elem(map, &0, &0, BpfMapUpdateFlag::Any)? };
-    println!("update map");
-    std::thread::sleep(std::time::Duration::from_secs(3));
-    unsafe { syscalls_wrapper::bpf_map_update_elem(map, &0, &1, BpfMapUpdateFlag::Any)? };
-    println!("update map");
-    std::thread::sleep(std::time::Duration::from_secs(3));
+    std::thread::sleep(std::time::Duration::from_secs(10));
+    // unsafe { syscalls_wrapper::bpf_map_update_elem(map, &0, &0, BpfMapUpdateFlag::Any)? };
+    // println!("update map");
+    // std::thread::sleep(std::time::Duration::from_secs(3));
+    // unsafe { syscalls_wrapper::bpf_map_update_elem(map, &0, &1, BpfMapUpdateFlag::Any)? };
+    // println!("update map");
+    // std::thread::sleep(std::time::Duration::from_secs(3));
     unsafe { syscalls_wrapper::close(ret)? };
     unsafe { syscalls_wrapper::close(map)? };
     Ok(())

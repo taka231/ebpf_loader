@@ -4,22 +4,10 @@ use std::fs;
 use std::mem::size_of;
 use std::path::Path;
 
-use crate::elf::{Elf, Elf64Ehdr, Elf64Shdr};
-
-pub fn read_struct<T>(data: &[u8], offset: usize) -> Option<&T> {
-    if offset + size_of::<T>() > data.len() {
-        return None;
-    }
-    unsafe {
-        Some(
-            data[offset..offset + size_of::<T>()]
-                .as_ptr()
-                .cast::<T>()
-                .as_ref()
-                .unwrap(),
-        )
-    }
-}
+use crate::{
+    common::read_struct,
+    elf::{Elf, Elf64Ehdr, Elf64Shdr},
+};
 
 fn read_section_name_table<'a>(
     data: &'a [u8],

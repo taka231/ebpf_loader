@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::elf_parser;
+use crate::{common, elf_parser};
 
 #[repr(C)]
 #[derive(Debug, Clone)]
@@ -114,9 +114,9 @@ impl Elf {
             if end <= self.data.len() {
                 let mut relocations = Vec::new();
                 for offset in (start..end).step_by(std::mem::size_of::<Elf64Rel>()) {
-                    let r_offset = *elf_parser::read_struct::<u64>(&self.data, offset)?;
-                    let rel_type = elf_parser::read_struct::<u32>(&self.data, offset + 8)?;
-                    let sym_idx = *elf_parser::read_struct::<u32>(&self.data, offset + 12)?;
+                    let r_offset = *common::read_struct::<u64>(&self.data, offset)?;
+                    let rel_type = common::read_struct::<u32>(&self.data, offset + 8)?;
+                    let sym_idx = *common::read_struct::<u32>(&self.data, offset + 12)?;
                     let rel = Elf64Rel {
                         r_offset,
                         rel_type: match rel_type {
