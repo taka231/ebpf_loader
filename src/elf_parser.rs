@@ -5,7 +5,7 @@ use std::mem::size_of;
 use std::path::Path;
 
 use crate::{
-    common::read_struct,
+    common,
     elf::{Elf, Elf64Ehdr, Elf64Shdr},
 };
 
@@ -24,20 +24,10 @@ fn read_section_name_table<'a>(
     }
 }
 
-fn get_section_name(name_table: &[u8], sh_name: u32) -> &str {
-    let start = sh_name as usize;
-    let end = name_table[start..]
-        .iter()
-        .position(|&c| c == 0)
-        .map(|pos| start + pos)
-        .unwrap_or(name_table.len());
-    std::str::from_utf8(&name_table[start..end]).unwrap_or("<invalid>")
-}
-
 pub fn parse_elf<P: AsRef<Path>>(path: P) -> Result<Elf> {
     let data = fs::read(path).context("Failed to read ELF file")?;
 
-    let ehdr = read_struct::<Elf64Ehdr>(&data, 0)
+    let ehdr = common::read_struct::<Elf64Ehdr>(&data, 0)
         .context("File too small for ELF header")?
         .clone();
 
@@ -52,8 +42,8 @@ pub fn parse_elf<P: AsRef<Path>>(path: P) -> Result<Elf> {
     let mut shdrs = Vec::new();
     for i in 0..shnum {
         let offset = shoff + i * shentsize;
-        let sh =
-            read_struct::<Elf64Shdr>(&data, offset).context("Failed to read section header")?;
+        let sh = common::read_struct::<Elf64Shdr>(&data, offset)
+            .context("Failed to read section header")?;
         shdrs.push(sh);
     }
 
@@ -63,10 +53,10 @@ pub fn parse_elf<P: AsRef<Path>>(path: P) -> Result<Elf> {
     let section_map: HashMap<String, Elf64Shdr> = shdrs
         .iter()
         .map(|&sh| {
-            let name = get_section_name(name_table, sh.sh_name);
-            (name.to_string(), sh.clone())
+            let name = common::get_name_from_string_section(name_table, sh.sh_name as usize)?;
+            Ok((name.to_string(), sh.clone()))
         })
-        .collect();
+        .collect::<Result<_>>()?;
     let section_name_table = Some(name_table.to_vec());
     Ok(Elf {
         data,
