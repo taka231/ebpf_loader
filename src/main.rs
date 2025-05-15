@@ -19,7 +19,6 @@ fn main() -> anyhow::Result<()> {
     let xdp_btf_section = btf_parser::parse_btf(elf.get_section_body(".BTF").unwrap(), 0)?;
     let xdp_btf_ext_section =
         btf_parser::parse_btf_ext(elf.get_section_body(".BTF.ext").unwrap(), 0)?;
-    println!("xdp_btf_ext_section: {:#?}", xdp_btf_ext_section);
 
     let map = unsafe { syscalls_wrapper::bpf_map_create(BpfMapType::Array, 4, 4, 1)? };
     unsafe { syscalls_wrapper::bpf_map_update_elem(map, &0, &1, BpfMapUpdateFlag::Any)? };

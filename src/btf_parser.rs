@@ -2,8 +2,8 @@ use anyhow::{bail, Context as _, Result};
 
 use crate::{
     btf::{
-        BpfCoreRelo, BpfCoreReloKind, BtfExtHeader, BtfExtInfoSec, BtfHeader, BtfKind, BtfMember,
-        BtfType, BtfTypeDetail,
+        BpfCoreRelo, BpfCoreReloKind, Btf, BtfExt, BtfExtHeader, BtfExtInfoSec, BtfHeader, BtfKind,
+        BtfMember, BtfType, BtfTypeDetail,
     },
     common,
 };
@@ -137,12 +137,16 @@ fn parse_btf_type_section<'a>(
     }
 }
 
-pub fn parse_btf(data: &[u8], offset: usize) -> Result<(&BtfHeader, &[u8], Vec<BtfType>)> {
+pub fn parse_btf(data: &[u8], offset: usize) -> Result<Btf<'_>> {
     let btf_header = parse_btf_header(data, offset)?;
     let offset = offset + btf_header.hdr_len as usize;
     let str_section = parse_btf_string_section(data, offset, btf_header)?;
     let type_section = parse_btf_type_section(data, offset, btf_header)?;
-    Ok((btf_header, str_section, type_section))
+    Ok(Btf {
+        header: btf_header,
+        string_section: str_section,
+        type_section,
+    })
 }
 
 fn parse_btf_ext_header(data: &[u8], offset: usize) -> Result<&BtfExtHeader> {
@@ -216,12 +220,12 @@ fn parse_btf_ext_core_relo<'a>(
     }
 }
 
-pub fn parse_btf_ext(
-    data: &[u8],
-    offset: usize,
-) -> Result<(&BtfExtHeader, Vec<BtfExtInfoSec<BpfCoreRelo>>)> {
+pub fn parse_btf_ext(data: &[u8], offset: usize) -> Result<BtfExt<'_>> {
     let btf_ext_header = parse_btf_ext_header(data, offset)?;
     let offset = offset + btf_ext_header.hdr_len as usize;
     let relocations = parse_btf_ext_core_relo(data, offset, btf_ext_header)?;
-    Ok((btf_ext_header, relocations))
+    Ok(BtfExt {
+        header: btf_ext_header,
+        core_relo_part: relocations,
+    })
 }

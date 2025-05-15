@@ -172,3 +172,16 @@ pub struct BtfExtInfoSec<T> {
     pub sec_name_off: u32,
     pub data: Vec<T>,
 }
+
+#[derive(Debug, Clone)]
+pub struct Btf<'a> {
+    pub header: &'a BtfHeader,
+    pub string_section: &'a [u8],
+    pub type_section: Vec<BtfType>,
+}
+
+#[derive(Debug, Clone)]
+pub struct BtfExt<'a> {
+    pub header: &'a BtfExtHeader,
+    pub core_relo_part: Vec<BtfExtInfoSec<BpfCoreRelo>>,
+}

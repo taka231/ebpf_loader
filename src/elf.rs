@@ -62,7 +62,7 @@ pub struct Elf64Rel {
     pub sym_idx: u32,
 }
 
-pub fn relocate(data: &mut Vec<u8>, rel_section: &[Elf64Rel], rel_map: &HashMap<u32, i64>) {
+pub fn relocate(data: &mut [u8], rel_section: &[Elf64Rel], rel_map: &HashMap<u32, i64>) {
     for Elf64Rel {
         r_offset,
         rel_type,
