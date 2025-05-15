@@ -1,18 +1,36 @@
 use anyhow::{Context as _, Result};
 use rust_ebpf_loader::{
-    elf_parser,
+    btf_parser, elf, elf_parser,
     syscalls_wrapper::{self, BpfProgType},
 };
 
 fn main() -> Result<()> {
+    let vmlinux_path = "/sys/kernel/btf/vmlinux";
+    let vmlinux_bin = std::fs::read(vmlinux_path)?;
+    let vmlinux_btf = btf_parser::parse_btf(&vmlinux_bin, 0)?;
+
     let path = "./ebpf_bin/xdp_ipv6_drop_core_wrong.o";
     let elf = elf_parser::parse_elf(path)?;
-    let xdp_section = elf
+    let mut xdp_section = elf
         .get_section_body("xdp")
-        .context("Failed to get xdp section")?;
+        .context("Failed to get xdp section")?
+        .to_vec();
+
+    let xdp_btf_section = btf_parser::parse_btf(elf.get_section_body(".BTF").unwrap(), 0)?;
+    let xdp_btf_ext_section =
+        btf_parser::parse_btf_ext(elf.get_section_body(".BTF.ext").unwrap(), 0)?;
+
+    elf::core_relocate(
+        &mut xdp_section,
+        "xdp",
+        &vmlinux_btf,
+        &xdp_btf_section,
+        &xdp_btf_ext_section,
+    )?;
+
     let mut log_buf = vec![0; 4096];
     let prog_fd = unsafe {
-        syscalls_wrapper::bpf_prog_load(BpfProgType::Xdp, xdp_section, "GPL", &mut log_buf, 1)?
+        syscalls_wrapper::bpf_prog_load(BpfProgType::Xdp, &xdp_section, "GPL", &mut log_buf, 1)?
     };
     // attach xdp to lo interface
     let ret = unsafe { syscalls_wrapper::xdp_attach(1, prog_fd as i32)? };

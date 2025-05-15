@@ -12,7 +12,7 @@ pub struct BtfHeader {
 }
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BtfKind {
     Int = 1,
     Ptr = 2,

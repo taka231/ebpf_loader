@@ -12,7 +12,7 @@ fn main() -> anyhow::Result<()> {
     let vmlinux_bin = std::fs::read(vmlinux_path)?;
     let vmlinux_btf = btf_parser::parse_btf(&vmlinux_bin, 0)?;
 
-    let path = "/home/taka2/ebpf/sample_xdp_drop/xdp_ipv6_drop_co_re.o";
+    let path = "./ebpf_bin/xdp_ipv6_drop_core.o";
     let elf = elf_parser::parse_elf(path)?;
     let mut xdp_section = elf.get_section_body("xdp").unwrap().to_vec();
 
@@ -29,6 +29,14 @@ fn main() -> anyhow::Result<()> {
     //     &xdp_rel_section.unwrap(),
     //     &vec![(3, map as i64)].into_iter().collect(),
     // );
+
+    elf::core_relocate(
+        &mut xdp_section,
+        "xdp",
+        &vmlinux_btf,
+        &xdp_btf_section,
+        &xdp_btf_ext_section,
+    )?;
 
     let mut log_buf = vec![0; 4096];
     let prog_fd = unsafe {

@@ -1,6 +1,12 @@
+use anyhow::{bail, Context as _, Result};
 use std::collections::HashMap;
 
-use crate::{common, elf_parser};
+use crate::{
+    btf::{
+        BpfCoreRelo, BpfCoreReloKind, Btf, BtfExt, BtfExtInfoSec, BtfKind, BtfType, BtfTypeDetail,
+    },
+    common, elf_parser,
+};
 
 #[repr(C)]
 #[derive(Debug, Clone)]
@@ -93,6 +99,116 @@ pub fn relocate(data: &mut [u8], rel_section: &[Elf64Rel], rel_map: &HashMap<u32
             _ => unimplemented!(),
         }
     }
+}
+
+fn extract_struct<'a>(btf: &'a Btf<'a>) -> Result<HashMap<&'a str, &'a BtfType>> {
+    let mut struct_map = HashMap::new();
+    for btf_type in &btf.type_section {
+        if btf_type.kind == BtfKind::Struct {
+            let name = common::get_name_from_string_section(
+                btf.string_section,
+                btf_type.name_off as usize,
+            )?;
+            struct_map.insert(name, btf_type);
+        }
+    }
+    Ok(struct_map)
+}
+
+pub fn core_relocate<'a, 'b>(
+    data: &'b mut [u8],
+    data_section_name: &str,
+    vmlinux: &'a Btf<'a>,
+    prog_btf: &'b Btf<'b>,
+    prog_btf_ext: &'b BtfExt<'b>,
+) -> Result<()> {
+    let vmlinux_struct_map = extract_struct(vmlinux)?;
+
+    for BtfExtInfoSec {
+        sec_name_off,
+        data: relo_data,
+    } in &prog_btf_ext.core_relo_part
+    {
+        let sec_name =
+            common::get_name_from_string_section(prog_btf.string_section, *sec_name_off as usize)?;
+        if sec_name != data_section_name {
+            continue;
+        }
+        for BpfCoreRelo {
+            insn_off,
+            type_id,
+            access_str_off,
+            kind: relo_kind,
+        } in relo_data
+        {
+            let access_str = common::get_name_from_string_section(
+                prog_btf.string_section,
+                *access_str_off as usize,
+            )?;
+            match relo_kind {
+                BpfCoreReloKind::FieldByteOffset => {
+                    let field_index = access_str[2..]
+                        .parse::<usize>()
+                        .context("Failed to parse field index")?;
+                    let BtfType {
+                        name_off,
+                        detail: BtfTypeDetail::Struct(members),
+                        kind_flag,
+                        ..
+                    } = prog_btf
+                        .type_section
+                        .get(*type_id as usize)
+                        .context("Failed to get type")?
+                    else {
+                        unimplemented!()
+                    };
+                    let struct_name = common::get_name_from_string_section(
+                        prog_btf.string_section,
+                        *name_off as usize,
+                    )?;
+                    let field = members.get(field_index).context("Failed to get field")?;
+                    let field_name = common::get_name_from_string_section(
+                        prog_btf.string_section,
+                        field.name_off as usize,
+                    )?;
+                    let prog_offset = field.get_offset(*kind_flag);
+
+                    let vmlinux_ty = vmlinux_struct_map
+                        .get(struct_name)
+                        .context("Failed to get type from vmlinux btf")?;
+
+                    let BtfType {
+                        detail: BtfTypeDetail::Struct(vmlinux_members),
+                        ..
+                    } = vmlinux_struct_map
+                        .get(struct_name)
+                        .context("Failed to get type from vmlinux btf")?
+                    else {
+                        unreachable!()
+                    };
+                    let vmlinux_field = vmlinux_members
+                        .iter()
+                        .find(|f| {
+                            let name = common::get_name_from_string_section(
+                                vmlinux.string_section,
+                                f.name_off as usize,
+                            )
+                            .unwrap();
+                            name == field_name
+                        })
+                        .context("Failed to find field")?;
+                    let vmlinux_offset = vmlinux_field.get_offset(vmlinux_ty.kind_flag);
+                    if prog_offset != vmlinux_offset {
+                        let insn_off = *insn_off as usize;
+                        data[insn_off + 2..insn_off + 4]
+                            .copy_from_slice(&((vmlinux_offset / 8) as u16).to_le_bytes());
+                    }
+                }
+                _ => unimplemented!(),
+            }
+        }
+    }
+    Ok(())
 }
 
 impl Elf {
